@@ -8,19 +8,106 @@ import { Readable } from 'stream';  // Add this for handling buffers
 import { readFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import passport from 'passport';
+import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
+import session from 'express-session';
+import pkg from 'pg';
+import { errorHandler } from './middleware/errorHandler.js';
+import { ensureAuthenticated } from './middleware/auth.js';
 
+
+const { Pool } = pkg;
 const app = express();
+const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 dotenv.config();
 console.log('API Key loaded:', process.env.OPENAI_API_KEY ? 'Yes' : 'No');
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
+  },
+});
+// Configure Passport to use Google OAuth
+passport.use(new GoogleStrategy({
+  clientID: process.env.GOOGLE_CLIENT_ID,
+  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+  callbackURL: '/auth/google/callback'
+},
+  (accessToken, refreshToken, profile, done) => {
+    // In production, you would look up or create a user record in your DB here.
+    // For now, we'll simply return the Google profile.
+    return done(null, profile);
+  }
+));
 
+// Configure Passport session management
+passport.serializeUser((user, done) => {
+  done(null, user);
+});
+passport.deserializeUser((user, done) => {
+  done(null, user);
+});
+
+// Setup session middleware (must come before passport.initialize())
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'defaultsecret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: { secure: false, sameSite: 'lax' }
+}));
+
+// Initialize Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
 
 app.use(cors({
   origin: ['https://interview-practice-bot.vercel.app', 'http://localhost:3000'],
-  methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 app.use(express.json({ limit: '50mb' }));  // Increased limit for audio data
 const __filename = fileURLToPath(import.meta.url);
+
+// Route to start the Google OAuth flow
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+
+// Google OAuth callback route
+app.get('/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  async (req, res) => {
+    // Extract details from the authenticated user's Google profile
+    const googleId = req.user.id;
+    const name = req.user.displayName;
+    const email = req.user.emails[0].value;
+    
+    try {
+      // Check if user already exists
+      const result = await pool.query('SELECT * FROM users WHERE google_id = $1', [googleId]);
+      if (result.rows.length === 0) {
+        // Create new user if not found
+        await pool.query('INSERT INTO users (google_id, name, email) VALUES ($1, $2, $3)', [googleId, name, email]);
+      }
+    } catch (err) {
+      console.error('Error querying/inserting user:', err);
+    }
+    
+    // Redirect to your client app
+    res.redirect(CLIENT_URL);
+});
+
+app.get('/test-db', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT NOW() as now');
+    res.json({ now: result.rows[0].now });
+  } catch (err) {
+    console.error('DB error:', err);
+    res.status(500).json({ error: 'Database connection error' });
+  }
+});
+
+
+
 
 // // Rate limiting middleware
 // const limiter = rateLimit({
@@ -128,6 +215,91 @@ app.post('/api/transcribe', async (req, res) => {
       res.status(500).json({ error: error.message });
     }
   });
+
+  // In your server.js (backend)
+app.get('/api/current-user', (req, res) => {
+  if (req.isAuthenticated && req.isAuthenticated()) {
+    res.json({ user: req.user });
+  } else {
+    res.status(401).json({ error: 'Not authenticated' });
+  }
+});
+
+// Also add a logout route:
+app.get('/auth/logout', (req, res, next) => {
+  req.logout(function(err) {
+    if (err) { return next(err); }
+    res.redirect(CLIENT_URL);
+  });
+});
+
+
+
+  app.post('/api/save', ensureAuthenticated, async (req, res) => {
+    const { transcription } = req.body;  // You could also use audioData if you plan to store binary data
+    if (!transcription) {
+      return res.status(400).json({ error: 'transcription is required' });
+    }
+    try {
+      // Get the user’s database ID using their Google ID from the session (req.user)
+      const googleId = req.user.id;
+      const userResult = await pool.query('SELECT id FROM users WHERE google_id = $1', [googleId]);
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const userId = userResult.rows[0].id;
+      
+      // Insert the recording record
+      const insertResult = await pool.query(
+        'INSERT INTO transcriptions (user_id, transcription) VALUES ($1, $2) RETURNING *',
+        [userId, transcription]
+      );
+      res.json(insertResult.rows[0]);
+    } catch (err) {
+      console.error('Error saving recording:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  app.get('/api/save', ensureAuthenticated, async (req, res) => {
+    try {
+      const googleId = req.user.id;
+      const userResult = await pool.query('SELECT id FROM users WHERE google_id = $1', [googleId]);
+      if (userResult.rows.length === 0) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      const userId = userResult.rows[0].id;
+      
+      // Fetch recordings for the user, ordering by the most recent first
+      const recordingsResult = await pool.query(
+        'SELECT * FROM transcriptions WHERE user_id = $1 ORDER BY created_at DESC',
+        [userId]
+      );
+      res.json(recordingsResult.rows);
+    } catch (err) {
+      console.error('Error fetching recordings:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+
+  app.delete('/api/save/:id', ensureAuthenticated, async (req, res) => {
+    const { id } = req.params;
+    try {
+      // Assuming you store transcriptions in a table called "recordings"
+      const result = await pool.query('DELETE FROM transcriptions WHERE id = $1 RETURNING *', [id]);
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Recording not found' });
+      }
+      res.json({ message: 'Recording deleted', recording: result.rows[0] });
+    } catch (err) {
+      console.error('Error deleting recording:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  });
+  
+  
+
+  app.use(errorHandler);
 
   const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => {
