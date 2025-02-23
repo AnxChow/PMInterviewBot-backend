@@ -15,7 +15,7 @@ console.log('API Key loaded:', process.env.OPENAI_API_KEY ? 'Yes' : 'No');
 
 
 app.use(cors({
-  origin: ['https://pm-interview-bot.vercel.app', 'http://localhost:3000'],
+  origin: ['https://interview-practice-bot.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'OPTIONS']
 }));
 app.use(express.json({ limit: '50mb' }));  // Increased limit for audio data
