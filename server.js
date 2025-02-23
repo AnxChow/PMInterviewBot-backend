@@ -11,13 +11,15 @@ import { fileURLToPath } from 'url';
 
 const app = express();
 dotenv.config();
+console.log('API Key loaded:', process.env.OPENAI_API_KEY ? 'Yes' : 'No');
+
+
 app.use(cors({
   origin: ['https://pm-interview-bot.vercel.app', 'http://localhost:3000'],
   methods: ['GET', 'POST', 'OPTIONS']
 }));
 app.use(express.json({ limit: '50mb' }));  // Increased limit for audio data
 const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 // // Rate limiting middleware
 // const limiter = rateLimit({
@@ -28,21 +30,28 @@ const __dirname = path.dirname(__filename);
 // app.use(limiter);
 // app.use(express.json());
 
-async function loadSystemPrompt() {
-    try {
-      const promptPath = path.join(__dirname, 'prompt.md');
-      const prompt = await readFile(promptPath, 'utf8');
-      return prompt;
-    } catch (error) {
-      console.error('Error loading prompt:', error);
-      return 'You are an experienced PM interviewer. Provide thoughtful responses and follow-up questions to help candidates practice their PM interview skills.'; // Fallback prompt
-    }
+
+async function loadPromptForRole(interviewType) {
+  try {
+    console.log('Loading prompt for role:', interviewType);
+    const promptPath = path.join(process.cwd(), 'prompts', `${interviewType}.md`);
+    console.log('Prompt path:', promptPath);
+    const prompt = await readFile(promptPath, 'utf8');
+    console.log('Loaded prompt:', prompt.substring(0, 100) + '...');
+    return prompt;
+  } catch (error) {
+    console.error('Error loading prompt:', error);
+    return 'You are an experienced interviewer. Provide thoughtful responses and follow-up questions.';
   }
+}
+
 
 // Handle text-based chat
 app.post('/api/chat', async (req, res) => {
   try {
-    const systemPrompt = await loadSystemPrompt();  // Add await here
+    console.log('Received request with interviewType:', req.body.interviewType);
+    const { messages, interviewType } = req.body;
+    const systemPrompt = await loadPromptForRole(interviewType);
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -56,7 +65,7 @@ app.post('/api/chat', async (req, res) => {
                 role: 'system',
                 content: systemPrompt
               },
-            ...req.body.messages
+            ...messages
           ],
           max_tokens: 2000,  // Added this
         // temperature: 0.7,  // Optional: add this for more consistent responses
@@ -66,6 +75,8 @@ app.post('/api/chat', async (req, res) => {
     });
 
     if (!response.ok) {
+      const errorData = await response.text();  // Get error details
+      console.log('OpenAI error response:', errorData);  // Log it
       throw new Error('OpenAI API error');
     }
 
