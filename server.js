@@ -56,7 +56,7 @@ app.use(session({
   secret: config.sessionSecret || 'defaultsecret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: true, sameSite: 'none' }
+  cookie: { secure: true, sameSite: 'none', domain:config.clientUrl } // change secure to 'false' when working locally, and sameSite to lax
 }));
 
 // Initialize Passport middleware
@@ -80,6 +80,7 @@ app.get('/auth/google/callback',
   passport.authenticate('google', { failureRedirect: '/login' }),
   async (req, res) => {
     // Extract details from the authenticated user's Google profile
+    console.log('Authenticated user:', req.user); // Debug log
     const googleId = req.user.id;
     const name = req.user.displayName;
     const email = req.user.emails[0].value;
@@ -96,7 +97,9 @@ app.get('/auth/google/callback',
     }
     
     // Redirect to your client app
+    console.log('Session:', req.session);
     res.redirect(CLIENT_URL);
+    
 });
 
 app.get('/test-db', async (req, res) => {
