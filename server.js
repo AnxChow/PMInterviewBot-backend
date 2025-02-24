@@ -1,6 +1,10 @@
+import dotenv from 'dotenv';
+dotenv.config();
+console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY);
+console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
+
 import cors from 'cors';
 import fetch from 'node-fetch';  // Add this if not already imported
 import FormData from 'form-data';
@@ -15,23 +19,24 @@ import pkg from 'pg';
 import { errorHandler } from './middleware/errorHandler.js';
 import { ensureAuthenticated } from './middleware/auth.js';
 
+import config from './config.js'
+
 
 const { Pool } = pkg;
 const app = express();
-const CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
-dotenv.config();
-console.log('API Key loaded:', process.env.OPENAI_API_KEY ? 'Yes' : 'No');
+const CLIENT_URL = config.clientUrl;
+console.log('API Key loaded:', config.openaiKey ? 'Yes' : 'No');
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: config.databaseUrl,
   ssl: {
     rejectUnauthorized: false,
   },
 });
 // Configure Passport to use Google OAuth
 passport.use(new GoogleStrategy({
-  clientID: process.env.GOOGLE_CLIENT_ID,
-  clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-  callbackURL: '/auth/google/callback'
+  clientID: config.googleClientId,
+  clientSecret: config.googleClientSecret,
+  callbackURL: `${config.serverUrl}/auth/google/callback`
 },
   (accessToken, refreshToken, profile, done) => {
     // In production, you would look up or create a user record in your DB here.
@@ -50,7 +55,7 @@ passport.deserializeUser((user, done) => {
 
 // Setup session middleware (must come before passport.initialize())
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'defaultsecret',
+  secret: config.sessionSecret || 'defaultsecret',
   resave: false,
   saveUninitialized: false,
   cookie: { secure: false, sameSite: 'lax' }
@@ -61,7 +66,7 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 app.use(cors({
-  origin: ['https://interview-practice-bot.vercel.app', 'http://localhost:3000'],
+  origin: [config.clientUrl],
   methods: ['GET', 'POST', 'OPTIONS', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -143,7 +148,7 @@ app.post('/api/chat', async (req, res) => {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Authorization': `Bearer ${config.openaiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
@@ -195,7 +200,7 @@ app.post('/api/transcribe', async (req, res) => {
       const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+          'Authorization': `Bearer ${config.openaiKey}`,
         },
         body: formData
       });
@@ -301,7 +306,7 @@ app.get('/auth/logout', (req, res, next) => {
 
   app.use(errorHandler);
 
-  const PORT = process.env.PORT || 3001;
+  const PORT = config.port;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
 });
