@@ -1,7 +1,5 @@
 import dotenv from 'dotenv';
 dotenv.config();
-console.log('OPENAI_API_KEY:', process.env.OPENAI_API_KEY);
-console.log('GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID);
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 
