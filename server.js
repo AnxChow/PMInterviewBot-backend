@@ -56,7 +56,7 @@ app.use(session({
   secret: config.sessionSecret || 'defaultsecret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: true, sameSite: 'none', domain:config.clientUrl } // change secure to 'false' when working locally, and sameSite to lax
+  cookie: { secure: true, sameSite: 'none', domain:'interview-practice-bot.vercel.app' } // change secure to 'false' when working locally, and sameSite to lax
 }));
 
 // Initialize Passport middleware
