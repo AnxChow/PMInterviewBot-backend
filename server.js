@@ -56,7 +56,7 @@ app.use(session({
   secret: config.sessionSecret || 'defaultsecret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: true, sameSite: 'none', domain:'interview-practice-bot.vercel.app' } // change secure to 'false' when working locally, and sameSite to lax
+  cookie: { secure: true, sameSite: 'none' } // change secure to 'false' when working locally, and sameSite to lax
 }));
 
 // Initialize Passport middleware
@@ -101,6 +101,12 @@ app.get('/auth/google/callback',
     res.redirect(CLIENT_URL);
     
 });
+
+app.get('/api/debug', (req, res) => {
+  console.log('DEBUG endpoint hit!');
+  res.json({ message: 'Backend reached via reverse proxy' });
+});
+
 
 app.get('/test-db', async (req, res) => {
   try {
@@ -224,6 +230,7 @@ app.post('/api/transcribe', async (req, res) => {
 
   // In your server.js (backend)
 app.get('/api/current-user', (req, res) => {
+  console.log('In current user', req.user);
   if (req.isAuthenticated && req.isAuthenticated()) {
     res.json({ user: req.user });
   } else {
