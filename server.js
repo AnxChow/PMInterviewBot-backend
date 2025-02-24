@@ -56,7 +56,7 @@ app.use(session({
   secret: config.sessionSecret || 'defaultsecret',
   resave: false,
   saveUninitialized: false,
-  cookie: { secure: false, sameSite: 'lax' }
+  cookie: { secure: true, sameSite: 'none' }
 }));
 
 // Initialize Passport middleware
